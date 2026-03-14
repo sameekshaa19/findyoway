@@ -59,6 +59,34 @@ def chat():
         return jsonify({"error": str(e)}), 500
 
 # ---------------------------------------------------------------------------
+# /api/stt  — speech-to-text endpoint for VoiceBot component
+# ---------------------------------------------------------------------------
+@app.route('/api/stt', methods=['POST'])
+def api_stt():
+    """Speech-to-text endpoint - accepts audio file upload."""
+    try:
+        if 'audio' not in request.files:
+            return jsonify({"error": "audio file is required"}), 400
+        
+        audio_file = request.files['audio']
+        language = request.form.get('language', 'English')
+        
+        # For demo purposes, return a placeholder transcript
+        # In production, integrate with Google Cloud STT, Azure, or Whisper
+        placeholder_transcripts = {
+            'English': 'pharmacy',
+            'Hindi': 'फार्मेसी',
+            'Spanish': 'farmacia',
+            'French': 'pharmacie'
+        }
+        
+        transcript = placeholder_transcripts.get(language, 'pharmacy')
+        
+        return jsonify({"transcript": transcript}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ---------------------------------------------------------------------------
 # /api/vision  — camera frame sign reading (used by geminiService.readSignsFromFrame)
 # /read-signs  — alias kept for backward-compat (accepts multipart file upload)
 # ---------------------------------------------------------------------------

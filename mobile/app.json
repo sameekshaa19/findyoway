@@ -13,10 +13,11 @@
     "ios": {
       "supportsTablet": false,
       "infoPlist": {
-        "NSCameraUsageDescription": "Camera is used for obstacle detection and reading building signs.",
-        "NSMicrophoneUsageDescription": "Microphone is used to capture your voice navigation commands.",
-        "NSLocationWhenInUseUsageDescription": "Location is used for outdoor GPS navigation.",
-        "NSLocationAlwaysUsageDescription": "Location is used to detect when you enter or leave a building."
+        "NSCameraUsageDescription": "FindYoWay uses your camera for obstacle detection and reading building signs to help visually impaired users navigate safely.",
+        "NSMicrophoneUsageDescription": "FindYoWay needs your microphone for voice navigation commands. You can speak destinations like 'Take me to Apollo Hospital'.",
+        "NSLocationWhenInUseUsageDescription": "FindYoWay uses your location to provide turn-by-turn navigation guidance both outdoors and indoors.",
+        "NSLocationAlwaysUsageDescription": "FindYoWay tracks location to detect when you enter or leave buildings and switch navigation modes automatically.",
+        "NSSpeechRecognitionUsageDescription": "FindYoWay uses speech recognition to understand your voice commands for hands-free navigation."
       }
     },
     "android": {
@@ -35,6 +36,14 @@
         "expo-av",
         {
           "microphonePermission": "Allow FindYoWay to access your microphone for voice commands."
+        }
+      ],
+      [
+        "expo-updates",
+        {
+          "enabled": false,
+          "checkOnLaunch": "NEVER",
+          "fallbackToCacheTimeout": 0
         }
       ]
     ]

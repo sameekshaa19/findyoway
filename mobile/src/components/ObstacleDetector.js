@@ -1,6 +1,6 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { View, TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native'
-import { CameraView, useCameraPermissions } from 'expo-camera'
+import { Camera } from 'expo-camera'
 import * as Haptics from 'expo-haptics'
 import * as Speech from 'expo-speech'
 import { analyzeFrame } from '../services/visionAPI'
@@ -16,10 +16,22 @@ import { analyzeFrame } from '../services/visionAPI'
  *  - Feedback: Haptic pulses and Text-to-Speech guidance.
  */
 export default function ObstacleDetector() {
-  const [permission, requestPermission] = useCameraPermissions()
+  const [permission, setPermission] = useState(null)
   const [scanning, setScanning] = useState(false)
   const [status, setStatus] = useState('Ready to scan')
   const cameraRef = useRef(null)
+
+  useEffect(() => {
+    (async () => {
+      const { status } = await Camera.requestCameraPermissionsAsync()
+      setPermission(status === 'granted')
+    })()
+  }, [])
+
+  const requestPermission = async () => {
+    const { status } = await Camera.requestCameraPermissionsAsync()
+    setPermission(status === 'granted')
+  }
 
   const scanSurroundings = async () => {
     if (scanning || !cameraRef.current) return
@@ -45,11 +57,12 @@ export default function ObstacleDetector() {
 
       // ─── Obstacle Analysis ───────────────────────────────────────────────
       const objects = result.localizedObjectAnnotations || []
-      const dangerous = ['Person', 'Chair', 'Table', 'Stairs', 
-                         'Door', 'Bottle', 'Bag', 'Couch']
+      const dangerous = ['person', 'chair', 'table', 'stairs', 
+                         'door', 'bottle', 'bag', 'couch', 'bed', 
+                         'dining table', 'bench', 'tv', 'laptop']
       
       const found = objects.find(o =>
-        dangerous.includes(o.name) && o.score > 0.6
+        dangerous.includes(o.name.toLowerCase()) && o.score > 0.5
       )
 
       // ─── Sign Analysis ───────────────────────────────────────────────────
@@ -58,15 +71,19 @@ export default function ObstacleDetector() {
       // ─── Result Feedback ─────────────────────────────────────────────────
       if (found && signText) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
-        Speech.speak(`${found.name} detected ahead. I can also see a sign saying ${signText}`)
-        setStatus(`⚠️ ${found.name} | Sign: ${signText}`)
+        Speech.speak(`${found.name} detected, ${found.distance}, be careful. I can also see a sign saying ${signText}`)
+        setStatus(`⚠️ ${found.name} - ${found.distance} | Sign: ${signText}`)
       } else if (found) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
-        Speech.speak(`${found.name} detected ahead. Please be careful.`)
-        setStatus(`⚠️ ${found.name} detected`)
+        Speech.speak(`${found.name} detected, ${found.distance}. Please be careful.`)
+        setStatus(`⚠️ ${found.name} - ${found.distance}`)
       } else if (signText) {
         Speech.speak(`I can see a sign that says: ${signText}`)
         setStatus(`📋 Sign: ${signText}`)
+      } else if (objects.length > 0) {
+        const first = objects[0]
+        Speech.speak(`${first.name} ahead, ${first.distance}`)
+        setStatus(`${first.name} - ${first.distance}`)
       } else {
         Speech.speak('Path looks clear ahead.')
         setStatus('✅ Path clear')
@@ -82,7 +99,7 @@ export default function ObstacleDetector() {
   }
 
   // ─── Permissions Gate ──────────────────────────────────────────────────────
-  if (!permission) {
+  if (permission === null) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#6200ea" />
@@ -90,7 +107,7 @@ export default function ObstacleDetector() {
     )
   }
 
-  if (!permission.granted) {
+  if (!permission) {
     return (
       <View style={styles.center}>
         <Text style={styles.text}>Camera access needed for navigation</Text>
@@ -103,7 +120,7 @@ export default function ObstacleDetector() {
 
   return (
     <View style={styles.container}>
-      <CameraView
+      <Camera
         ref={cameraRef}
         style={styles.camera}
         facing="back"

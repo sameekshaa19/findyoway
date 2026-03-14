@@ -4,10 +4,9 @@
     "slug": "findyoway",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#1a1a2e"
     },
@@ -21,10 +20,6 @@
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1a1a2e"
-      },
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",
@@ -42,11 +37,6 @@
           "microphonePermission": "Allow FindYoWay to access your microphone for voice commands."
         }
       ]
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "your-eas-project-id"
-      }
-    }
+    ]
   }
 }

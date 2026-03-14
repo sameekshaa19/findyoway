@@ -1,43 +1,35 @@
-// Google Vision API configuration
-// EXPO_PUBLIC_ prefix is required for Expo to expose variables to the JS environment
-const API_KEY = process.env.EXPO_PUBLIC_VISION_API_KEY || 'AIzaSyA1tDbDovmq1-kdWwG-dYZUQDQpf_-e6b0'
+// Backend object detection API
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://10.150.131.217:5000'
 
-/**
- * analyzeFrame
- * ────────────
- * Sends a base64 image to Google Cloud Vision API.
- * Uses OBJECT_LOCALIZATION to detect obstacles and TEXT_DETECTION for signs.
- * 
- * @param {string} base64Image - Base64 encoded JPEG string
- * @returns {Promise<Object|null>} - First response from Vision API or null on error
- */
 export const analyzeFrame = async (base64Image) => {
   try {
-    const response = await fetch(
-      `https://vision.googleapis.com/v1/images:annotate?key=${API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          requests: [{
-            image: { content: base64Image },
-            features: [
-              { type: 'OBJECT_LOCALIZATION', maxResults: 10 },
-              { type: 'TEXT_DETECTION', maxResults: 5 }
-            ]
-          }]
-        })
-      }
-    )
+    // Call backend object detection endpoint
+    const response = await fetch(`${BACKEND_URL}/api/detect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ frame: base64Image })
+    })
     
     if (!response.ok) {
-      throw new Error(`Vision API responded with status ${response.status}`)
+      throw new Error(`Backend responded with status ${response.status}`)
     }
-
+    
     const data = await response.json()
-    return data.responses?.[0] || null
+    
+    // Map backend response to expected format
+    const objects = (data.objects || []).map(obj => ({
+      name: obj.name,
+      score: obj.score,
+      distance: obj.distance
+    }))
+    
+    return {
+      localizedObjectAnnotations: objects,
+      textAnnotations: []
+    }
+    
   } catch (e) {
-    console.log('Vision API error:', e)
+    console.log('Detection error:', e.message)
     return null
   }
 }

@@ -6,6 +6,8 @@ import google.generativeai as genai
 from PIL import Image
 import io
 from dotenv import load_dotenv
+import cv2
+import numpy as np
 
 load_dotenv()  # Loads GEMINI_API_KEY from .env automatically
 
@@ -15,6 +17,39 @@ CORS(app)
 # Configure Gemini key from environment variable (set in .env or export)
 api_key = os.environ.get("GEMINI_API_KEY", "YOUR_API_KEY_HERE")
 genai.configure(api_key=api_key)
+
+# Load MobileNet-SSD model for object detection
+# Download model files if they don't exist
+PROTOTXT_PATH = "MobileNetSSD_deploy.prototxt"
+MODEL_PATH = "MobileNetSSD_deploy.caffemodel"
+CLASS_NAMES = ["background", "aeroplane", "bicycle", "bird", "boat",
+               "bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
+               "dog", "horse", "motorbike", "person", "pottedplant", "sheep",
+               "sofa", "train", "tvmonitor"]
+
+# Dangerous objects for visually impaired navigation
+DANGEROUS_OBJECTS = ["person", "chair", "diningtable", "bottle", "sofa", "tvmonitor"]
+
+def download_model():
+    """Download MobileNet-SSD model files if not present."""
+    prototxt_url = "https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/master/deploy.prototxt"
+    model_url = "https://github.com/chuanqi305/MobileNet-SSD/raw/master/mobilenet_iter_73000.caffemodel"
+    
+    if not os.path.exists(PROTOTXT_PATH):
+        import urllib.request
+        print("Downloading MobileNet-SSD prototxt...")
+        urllib.request.urlretrieve(prototxt_url, PROTOTXT_PATH)
+    
+    if not os.path.exists(MODEL_PATH):
+        import urllib.request
+        print("Downloading MobileNet-SSD model...")
+        urllib.request.urlretrieve(model_url, MODEL_PATH)
+
+# Download model on startup
+download_model()
+
+# Load the model
+net = cv2.dnn.readNetFromCaffe(PROTOTXT_PATH, MODEL_PATH)
 
 # ---------------------------------------------------------------------------
 # /api/navigate  — spoken navigation queries (used by geminiService.askGemini)
@@ -127,6 +162,85 @@ def read_signs():
         image_bytes = request.files['image'].read()
         guidance = _vision_logic(image_bytes)
         return jsonify({"reply": guidance}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ---------------------------------------------------------------------------
+# /api/detect  — Real-time object detection endpoint
+# ---------------------------------------------------------------------------
+def estimate_distance(box_area, frame_area):
+    """Estimate distance based on bounding box size."""
+    ratio = box_area / frame_area
+    if ratio > 0.3:
+        return "very close"
+    elif ratio > 0.15:
+        return "about 1 to 2 meters"
+    elif ratio > 0.05:
+        return "about 3 to 4 meters"
+    else:
+        return "far away"
+
+@app.route('/api/detect', methods=['POST'])
+def api_detect():
+    """Object detection endpoint — accepts base64 image, returns detected objects."""
+    try:
+        data = request.json or {}
+        frame_b64 = data.get('frame', '')
+        
+        if not frame_b64:
+            return jsonify({"error": "frame is required"}), 400
+        
+        # Decode base64 image
+        image_bytes = base64.b64decode(frame_b64)
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if image is None:
+            return jsonify({"error": "invalid image"}), 400
+        
+        (h, w) = image.shape[:2]
+        frame_area = h * w
+        
+        # Prepare image for MobileNet-SSD
+        blob = cv2.dnn.blobFromImage(cv2.resize(image, (300, 300)), 0.007843, (300, 300), 127.5)
+        net.setInput(blob)
+        detections = net.forward()
+        
+        objects = []
+        for i in range(detections.shape[2]):
+            confidence = detections[0, 0, i, 2]
+            
+            # Filter by confidence threshold
+            if confidence > 0.5:
+                idx = int(detections[0, 0, i, 1])
+                class_name = CLASS_NAMES[idx]
+                
+                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+                (startX, startY, endX, endY) = box.astype("int")
+                
+                # Calculate box area for distance estimation
+                box_width = endX - startX
+                box_height = endY - startY
+                box_area = box_width * box_height
+                
+                distance = estimate_distance(box_area, frame_area)
+                
+                objects.append({
+                    "name": class_name,
+                    "score": float(confidence),
+                    "distance": distance,
+                    "isDangerous": class_name in DANGEROUS_OBJECTS,
+                    "bbox": [int(startX), int(startY), int(box_width), int(box_height)]
+                })
+        
+        # Sort by danger and confidence
+        objects.sort(key=lambda x: (not x["isDangerous"], -x["score"]))
+        
+        return jsonify({
+            "objects": objects,
+            "count": len(objects)
+        }), 200
+        
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

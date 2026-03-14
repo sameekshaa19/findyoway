@@ -1,78 +1,195 @@
-import { useEffect, useRef } from 'react';
-import * as tf from '@tensorflow/tfjs';
-import * as cocoSsd from '@tensorflow-models/coco-ssd';
-import { bundleResourceIO } from '@tensorflow/tfjs-react-native';
-import * as Speech from 'expo-speech';
-import * as Haptics from 'expo-haptics';
-
-const DANGER_CLASSES = ['person', 'chair', 'stairs', 'potted plant', 'dog', 'bicycle', 'car'];
-const DETECT_INTERVAL_MS = 1500;
+import React, { useState, useRef } from 'react'
+import { View, TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native'
+import { CameraView, useCameraPermissions } from 'expo-camera'
+import * as Haptics from 'expo-haptics'
+import * as Speech from 'expo-speech'
+import { analyzeFrame } from '../services/visionAPI'
 
 /**
- * ObstacleDetector — runs TensorFlow COCO-SSD on live camera frames.
- * Does NOT render anything — it's a logic-only component.
- * When a dangerous object is detected it:
- *   1. Fires double haptic buzz
- *   2. Speaks the obstacle warning in the user's language
+ * ObstacleDetector
+ * ────────────────
+ * Main camera component for real-time navigation assistance.
+ * Features:
+ *  - Interactive Scan: Tap to analyze the current frame.
+ *  - Obstacle Detection: Warns about dangerous objects (people, chairs, stairs, etc.)
+ *  - Sign Reading: Speaks any visible text found in the frame.
+ *  - Feedback: Haptic pulses and Text-to-Speech guidance.
  */
-export default function ObstacleDetector({ cameraRef, language }) {
-  const model = useRef(null);
-  const timer = useRef(null);
-  const lastSpoken = useRef('');
+export default function ObstacleDetector() {
+  const [permission, requestPermission] = useCameraPermissions()
+  const [scanning, setScanning] = useState(false)
+  const [status, setStatus] = useState('Ready to scan')
+  const cameraRef = useRef(null)
 
-  useEffect(() => {
-    let mounted = true;
+  const scanSurroundings = async () => {
+    if (scanning || !cameraRef.current) return
+    
+    setScanning(true)
+    setStatus('Scanning...')
+    Speech.speak('Scanning surroundings')
 
-    const loadAndDetect = async () => {
-      await tf.ready();
-      model.current = await cocoSsd.load();
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        base64: true,
+        quality: 0.5,
+      })
 
-      timer.current = setInterval(async () => {
-        if (!cameraRef?.current || !model.current || !mounted) return;
-        try {
-          const photo = await cameraRef.current.takePictureAsync({
-            base64: true, quality: 0.3, skipProcessing: true,
-          });
+      const result = await analyzeFrame(photo.base64)
 
-          // Convert base64 to tensor
-          const imgB64 = photo.base64;
-          const raw = Uint8Array.from(atob(imgB64), (c) => c.charCodeAt(0));
-          const imageTensor = tf.tidy(() => {
-            const decoded = tf.node ? tf.node.decodeImage(raw, 3) : null;
-            return decoded;
-          });
+      if (!result) {
+        Speech.speak('Could not scan. Try again.')
+        setStatus('Scan failed')
+        setScanning(false)
+        return
+      }
 
-          if (!imageTensor) return;
+      // ─── Obstacle Analysis ───────────────────────────────────────────────
+      const objects = result.localizedObjectAnnotations || []
+      const dangerous = ['Person', 'Chair', 'Table', 'Stairs', 
+                         'Door', 'Bottle', 'Bag', 'Couch']
+      
+      const found = objects.find(o =>
+        dangerous.includes(o.name) && o.score > 0.6
+      )
 
-          const predictions = await model.current.detect(imageTensor);
-          imageTensor.dispose();
+      // ─── Sign Analysis ───────────────────────────────────────────────────
+      const signText = result.textAnnotations?.[0]?.description?.trim()
 
-          const obstacles = predictions.filter(
-            (p) => DANGER_CLASSES.includes(p.class) && p.score > 0.55
-          );
+      // ─── Result Feedback ─────────────────────────────────────────────────
+      if (found && signText) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+        Speech.speak(`${found.name} detected ahead. I can also see a sign saying ${signText}`)
+        setStatus(`⚠️ ${found.name} | Sign: ${signText}`)
+      } else if (found) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+        Speech.speak(`${found.name} detected ahead. Please be careful.`)
+        setStatus(`⚠️ ${found.name} detected`)
+      } else if (signText) {
+        Speech.speak(`I can see a sign that says: ${signText}`)
+        setStatus(`📋 Sign: ${signText}`)
+      } else {
+        Speech.speak('Path looks clear ahead.')
+        setStatus('✅ Path clear')
+      }
 
-          if (obstacles.length > 0) {
-            const topObstacle = obstacles[0].class;
-            if (topObstacle !== lastSpoken.current) {
-              lastSpoken.current = topObstacle;
-              // Double haptic buzz
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-              setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 200);
-              Speech.speak(`Obstacle ahead: ${topObstacle}. Move slightly.`, { language });
-            }
-          }
-        } catch (e) {
-          console.log('Obstacle detection error:', e);
-        }
-      }, DETECT_INTERVAL_MS);
-    };
+    } catch (e) {
+      console.log('Scan error:', e)
+      Speech.speak('Scan failed. Please try again.')
+      setStatus('Scan failed')
+    }
 
-    loadAndDetect();
-    return () => {
-      mounted = false;
-      clearInterval(timer.current);
-    };
-  }, []);
+    setScanning(false)
+  }
 
-  return null; // No visual output — audio + haptics only
+  // ─── Permissions Gate ──────────────────────────────────────────────────────
+  if (!permission) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#6200ea" />
+      </View>
+    )
+  }
+
+  if (!permission.granted) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.text}>Camera access needed for navigation</Text>
+        <TouchableOpacity style={styles.button} onPress={requestPermission}>
+          <Text style={styles.buttonText}>Allow Camera</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.container}>
+      <CameraView
+        ref={cameraRef}
+        style={styles.camera}
+        facing="back"
+      />
+
+      {/* Result Status Overlay */}
+      <View style={styles.statusBar}>
+        <Text style={styles.statusText}>{status}</Text>
+      </View>
+
+      {/* Main Action Button */}
+      <TouchableOpacity
+        style={[styles.scanButton, scanning && styles.scanButtonDisabled]}
+        onPress={scanSurroundings}
+        disabled={scanning}
+      >
+        <Text style={styles.buttonText}>
+          {scanning ? '⏳ Scanning...' : '📷 Scan Surroundings'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  )
 }
+
+const styles = StyleSheet.create({
+  container: { 
+    flex: 1, 
+    backgroundColor: 'black' 
+  },
+  camera: { 
+    flex: 1 
+  },
+  center: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    backgroundColor: 'black' 
+  },
+  text: { 
+    color: 'white', 
+    fontSize: 16, 
+    marginBottom: 20 
+  },
+  statusBar: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    padding: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  statusText: { 
+    color: 'white', 
+    fontSize: 15, 
+    textAlign: 'center',
+    fontWeight: '500'
+  },
+  scanButton: {
+    position: 'absolute',
+    bottom: 50,
+    alignSelf: 'center',
+    backgroundColor: '#6200ea',
+    paddingVertical: 18,
+    paddingHorizontal: 40,
+    borderRadius: 35,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  scanButtonDisabled: { 
+    backgroundColor: '#555' 
+  },
+  buttonText: { 
+    color: 'white', 
+    fontSize: 17, 
+    fontWeight: 'bold' 
+  },
+  button: { 
+    backgroundColor: '#6200ea', 
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 12 
+  }
+})

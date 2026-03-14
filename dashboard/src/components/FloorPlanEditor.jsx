@@ -6,7 +6,8 @@ import ReactFlow, {
   Background,
   useNodesState,
   useEdgesState,
-} from 'react-flow-renderer'
+} from 'reactflow'
+import 'reactflow/dist/style.css'
 
 const NODE_TYPES = ['entrance', 'junction', 'elevator', 'room', 'exit']
 

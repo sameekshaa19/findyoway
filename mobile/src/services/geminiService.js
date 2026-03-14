@@ -1,11 +1,23 @@
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
-// Load backend URL from .env (Expo exposes extra config via Constants.expoConfig.extra)
-// For local development, update your .env BACKEND_URL to your laptop's LAN IP
-const BACKEND_URL =
-  Constants.expoConfig?.extra?.backendUrl ||
-  process.env.BACKEND_URL ||
-  'http://localhost:5000';
+// Network configuration for different environments
+const getBaseUrl = () => {
+  const BACKEND_URL = Constants.expoConfig?.extra?.flaskApiUrl ||
+                     process.env.EXPO_PUBLIC_FLASK_API_URL ||
+                     'http://localhost:5000';
+  
+  if (Platform.OS === 'android') {
+    // Android emulator uses 10.0.2.2 to reach host localhost
+    return BACKEND_URL.replace('localhost', '10.0.2.2');
+  }
+  if (Platform.OS === 'ios' && !Platform.isPad) {
+    // iOS simulator can use localhost
+    return BACKEND_URL;
+  }
+  // Physical device - use your computer's local IP
+  return BACKEND_URL.replace('localhost', '192.168.137.1'); // Your laptop IP
+};
 
 /**
  * Sends a text query to the Gemini conversational navigation bot.
@@ -16,7 +28,7 @@ const BACKEND_URL =
  */
 export async function askGemini(message, language, context = '') {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/navigate`, {
+    const res = await fetch(`${getBaseUrl()}/api/navigate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, language, context }),
@@ -40,7 +52,7 @@ export async function askGemini(message, language, context = '') {
  */
 export async function readSignsFromFrame(base64Frame, goal, language) {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/vision`, {
+    const res = await fetch(`${getBaseUrl()}/api/vision`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ frame: base64Frame, goal, language }),

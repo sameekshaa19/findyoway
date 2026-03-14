@@ -1,33 +1,72 @@
 import os
 import base64
+import logging
+from io import BytesIO
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import google.generativeai as genai
 from PIL import Image
-import io
+import google.generativeai as genai
 from dotenv import load_dotenv
 
-load_dotenv()  # Loads GEMINI_API_KEY from .env automatically
+# Load environment variables
+load_dotenv()
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize Flask app with CORS for mobile access
 app = Flask(__name__)
-CORS(app)
 
-# Configure Gemini key from environment variable (set in .env or export)
-api_key = os.environ.get("GEMINI_API_KEY", "YOUR_API_KEY_HERE")
-genai.configure(api_key=api_key)
+# Critical: Configure CORS for Expo mobile app access
+CORS(app, resources={
+    r"/api/*": {
+        "origins": "*",  # Allow all origins for development
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "Accept"]
+    }
+})
+
+# Configure Gemini API
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+if not GOOGLE_API_KEY:
+    logger.warning("GOOGLE_API_KEY not set. Vision features will not work.")
+else:
+    genai.configure(api_key=GOOGLE_API_KEY)
+
+# Initialize Gemini model
+try:
+    vision_model = genai.GenerativeModel('gemini-1.5-flash')
+    text_model = genai.GenerativeModel('gemini-1.5-flash')
+except Exception as e:
+    logger.error(f"Failed to initialize Gemini: {e}")
+    vision_model = None
+    text_model = None
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for mobile app connectivity testing."""
+    return jsonify({
+        "status": "healthy",
+        "service": "FindYoWay Backend",
+        "version": "1.0.0",
+        "vision_enabled": vision_model is not None
+    }), 200
 
 # ---------------------------------------------------------------------------
 # /api/navigate  — spoken navigation queries (used by geminiService.askGemini)
 # /chat          — alias kept for backward-compat
 # ---------------------------------------------------------------------------
 def _chat_logic(message, language="English", context=""):
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    if not text_model:
+        return f"Navigation assistance for: {message}. (AI model not configured)"
+    
     system_prompt = (
         f"You are a helpful indoor/outdoor navigation assistant. "
         f"Reply in {language}. Be concise — the response will be spoken aloud. "
         f"Context: {context}"
     )
-    response = model.generate_content(f"{system_prompt}\n\nUser: {message}")
+    response = text_model.generate_content(f"{system_prompt}\n\nUser: {message}")
     return response.text
 
 @app.route('/api/navigate', methods=['POST'])
@@ -91,15 +130,17 @@ def api_stt():
 # /read-signs  — alias kept for backward-compat (accepts multipart file upload)
 # ---------------------------------------------------------------------------
 def _vision_logic(image_bytes, goal="destination", language="English"):
-    img = Image.open(io.BytesIO(image_bytes))
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    if not vision_model:
+        return "Vision analysis unavailable. Please configure GOOGLE_API_KEY."
+    
+    img = Image.open(BytesIO(image_bytes))
     prompt = (
         f"You are a navigation assistant for a visually impaired user. "
         f"The user is looking for: '{goal}'. "
         f"Look at the signs in this image and give a short spoken direction in {language}. "
         f"If no useful signs are visible, say 'No signs detected, keep walking slowly.'"
     )
-    response = model.generate_content([prompt, img])
+    response = vision_model.generate_content([prompt, img])
     return response.text
 
 @app.route('/api/vision', methods=['POST'])
@@ -131,4 +172,12 @@ def read_signs():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Run on 0.0.0.0 to allow mobile app access over local network
+    port = int(os.getenv('PORT', 5000))
+    debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    
+    logger.info(f"Starting FindYoWay backend on port {port}")
+    logger.info(f"Debug mode: {debug}")
+    logger.info(f"Vision enabled: {vision_model is not None}")
+    
+    app.run(host='0.0.0.0', port=port, debug=debug, threaded=True)

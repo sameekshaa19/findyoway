@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "FindYoWay",
+    "slug": "findyoway",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1a2e"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "FindYoWay uses your camera for obstacle detection and reading building signs to help visually impaired users navigate safely.",
+        "NSMicrophoneUsageDescription": "FindYoWay needs your microphone for voice navigation commands. You can speak destinations like 'Take me to Apollo Hospital'.",
+        "NSLocationWhenInUseUsageDescription": "FindYoWay uses your location to provide turn-by-turn navigation guidance both outdoors and indoors.",
+        "NSLocationAlwaysUsageDescription": "FindYoWay tracks location to detect when you enter or leave buildings and switch navigation modes automatically.",
+        "NSSpeechRecognitionUsageDescription": "FindYoWay uses speech recognition to understand your voice commands for hands-free navigation."
+      }
+    },
+    "android": {
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "SEND_SMS"
+      ]
+    },
+    "plugins": [
+      "expo-camera",
+      "expo-location",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow FindYoWay to access your microphone for voice commands."
+        }
+      ],
+      [
+        "expo-updates",
+        {
+          "enabled": false,
+          "checkOnLaunch": "NEVER",
+          "fallbackToCacheTimeout": 0
+        }
+      ]
+    ]
+  }
+}

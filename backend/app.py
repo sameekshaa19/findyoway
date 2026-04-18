@@ -161,22 +161,55 @@ def api_stt():
         return jsonify({"error": str(e)}), 500
 
 # ---------------------------------------------------------------------------
-# /api/vision  — camera frame sign reading (used by geminiService.readSignsFromFrame)
-# /read-signs  — alias kept for backward-compat (accepts multipart file upload)
+# /api/vision  — camera frame sign reading using EasyOCR
+# /read-signs  — alias kept for backward-compat
 # ---------------------------------------------------------------------------
+import easyocr
+
+# Initialize EasyOCR reader (English only)
+ocr_reader = easyocr.Reader(['en'], gpu=False)
+
 def _vision_logic(image_bytes, goal="destination", language="English"):
-    if not vision_model:
-        return "Vision analysis unavailable. Please configure GOOGLE_API_KEY."
-    
-    img = Image.open(BytesIO(image_bytes))
-    prompt = (
-        f"You are a navigation assistant for a visually impaired user. "
-        f"The user is looking for: '{goal}'. "
-        f"Look at the signs in this image and give a short spoken direction in {language}. "
-        f"If no useful signs are visible, say 'No signs detected, keep walking slowly.'"
-    )
-    response = vision_model.generate_content([prompt, img])
-    return response.text
+    """Extract text from image using EasyOCR."""
+    try:
+        # Convert bytes to numpy array
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            return "Could not process image"
+        
+        # Run OCR
+        results = ocr_reader.readtext(img)
+        
+        if not results:
+            return "No signs detected, keep walking slowly."
+        
+        # Extract all detected text
+        detected_texts = [r[1] for r in results]
+        text = " | ".join(detected_texts)
+        
+        # Generate guidance based on detected signs
+        common_signs = {
+            'exit': 'Exit sign detected ahead',
+            'entrance': 'Entrance ahead',
+            'stairs': 'Stairs detected ahead, be careful',
+            'elevator': 'Elevator nearby',
+            'restroom': 'Restroom nearby',
+            'pharmacy': 'Pharmacy nearby',
+            'caution': 'Caution sign detected',
+            'stop': 'Stop sign detected',
+        }
+        
+        text_lower = text.lower()
+        for sign_keyword, guidance in common_signs.items():
+            if sign_keyword in text_lower:
+                return guidance
+        
+        return f"Sign detected: {text}"
+        
+    except Exception as e:
+        return f"Could not read signs: {str(e)}"
 
 @app.route('/api/vision', methods=['POST'])
 def api_vision():
